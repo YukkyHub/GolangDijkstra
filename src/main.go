@@ -19,7 +19,7 @@ func main() {
 	file, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 
 	// Instanciate reader
@@ -36,9 +36,18 @@ func main() {
 			}
 		}
 		// Remove the \n at the end of
-		line = strings.TrimSuffix(line, "\n")
+		line = strings.TrimSuffix(line, "\r\n") //for windows
+		line = strings.TrimSuffix(line, "\n")   //for mac & unix
 		// Split line with " " to get the relation in the file
 		relation := strings.Split(line, " ")
+
+		if len(relation) == 2 {
+			//nbNoeud, err := strconv.Atoi(relation[0])
+			//if err != nil {
+			//	os.Exit(3)
+			//}
+			//nbLien := relation[1]
+		}
 
 		// If the it is a relation (ex : "A B 12")
 		if len(relation) == 3 {
@@ -54,17 +63,35 @@ func main() {
 			// Exit if the weight of the relation is not defined
 			if err != nil {
 				log.Fatal(err)
-				os.Exit(1)
+				os.Exit(4)
 			}
 
 			// If there are no existing relations for the
 			if graph[origin] == nil {
 				graph[origin] = make(map[string]int)
 			}
-			graph[origin][destination] = value
+			if graph[destination] == nil {
+				graph[destination] = make(map[string]int)
+			}
 
+			//pondère l'arête
+			graph[origin][destination] = value
+			graph[destination][origin] = value
 		}
 	}
+	fmt.Println(graph["B"]["A"])
 	fmt.Println(graph)
+
+	var ensemble []string
+	i := 0
+	for key := range graph {
+		ensemble[i] = key
+		i++
+	}
+	println(ensemble)
+	shortestpath(graph, "A", ensemble)
+}
+
+func shortestpath(graphe map[string]map[string]int, src string, ensemble []string) {
 
 }
