@@ -131,6 +131,10 @@ func main() {
 	dist, prev := Shortestpath(graph, "A", ensemble)
 	fmt.Println("DIST", dist)
 	fmt.Println("PREV", prev)
+
+	for _, e := range ensemble {
+		fmt.Println(getPath(e, prev))
+	}
 }
 
 const (
@@ -170,4 +174,18 @@ func Shortestpath(graph map[string]map[string]int, src string, ensemble []string
 	}
 
 	return dist, prev
+}
+
+func getPath(dest string, prev map[string]string) string {
+	str := dest
+	for prev[dest] != "" {
+		str = prev[dest] + "->" + str
+		dest = prev[dest]
+	}
+
+	return str
+}
+
+func output(src string, dist map[string]int, prev map[string]string) {
+
 }
