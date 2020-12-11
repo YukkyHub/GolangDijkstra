@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"container/heap"
 	"fmt"
 	"io"
 	"log"
@@ -9,6 +10,45 @@ import (
 	"strconv"
 	"strings"
 )
+
+type Queue struct {
+	items []string
+	m     map[string]int
+	pr    map[string]int
+}
+
+func (q *Queue) Push(x interface{}) {
+	n := len(q.items)
+	item := x.(string)
+	q.m[item] = n
+	q.items = append(q.items, item)
+}
+func (q *Queue) Pop() interface{} {
+	old := q.items
+	n := len(old)
+	item := old[n-1]
+	q.m[item] = -1
+	q.items = old[0 : n-1]
+	return item
+}
+
+func (q *Queue) Len() int           { return len(q.items) }
+func (q *Queue) Less(i, j int) bool { return q.pr[q.items[i]] < q.pr[q.items[j]] }
+func (q *Queue) Swap(i, j int) {
+	q.items[i], q.items[j] = q.items[j], q.items[i]
+	q.m[q.items[i]] = i
+	q.m[q.items[j]] = j
+}
+
+func (q *Queue) update(item string, priority int) {
+	q.pr[item] = priority
+	heap.Fix(q, q.m[item])
+}
+
+func (q *Queue) addWithPriority(item string, priority int) {
+	heap.Push(q, item)
+	q.update(item, priority)
+}
 
 func main() {
 	// Check if there is a file name given
@@ -83,15 +123,51 @@ func main() {
 	fmt.Println(graph)
 
 	var ensemble []string
-	i := 0
 	for key := range graph {
-		ensemble[i] = key
-		i++
+		ensemble = append(ensemble, key)
 	}
-	println(ensemble)
-	shortestpath(graph, "A", ensemble)
+	fmt.Println(ensemble)
+
+	dist, prev := Shortestpath(graph, "A", ensemble)
+	fmt.Println("DIST", dist)
+	fmt.Println("PREV", prev)
 }
 
-func shortestpath(graphe map[string]map[string]int, src string, ensemble []string) {
+const (
+	Infinity      = int(^uint(0) >> 1)
+	Uninitialized = ""
+)
 
+func Shortestpath(graph map[string]map[string]int, src string, ensemble []string) (map[string]int, map[string]string) {
+
+	dist := make(map[string]int)
+	prev := make(map[string]string)
+
+	// Set length to 0 for the source
+	dist[src] = 0
+
+	q := &Queue{[]string{}, make(map[string]int), make(map[string]int)}
+
+	// Set the value to the infinity
+	for _, v := range ensemble {
+		if v != src {
+			dist[v] = Infinity
+		}
+		prev[v] = Uninitialized
+		q.addWithPriority(v, dist[v])
+	}
+
+	for len(q.items) != 0 {
+		u := heap.Pop(q).(string)
+		for v := range graph[u] {
+			alt := dist[u] + graph[u][v]
+			if alt < dist[v] {
+				dist[v] = alt
+				prev[v] = u
+				q.update(v, alt)
+			}
+		}
+	}
+
+	return dist, prev
 }
