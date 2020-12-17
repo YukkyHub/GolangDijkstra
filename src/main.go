@@ -7,9 +7,19 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
+
+// Struct passed in the channel by all go routines
+type dijkstraResult struct {
+	src  string
+	prev map[string]string
+	dist map[string]int
+}
 
 type Queue struct {
 	items []string
@@ -50,7 +60,17 @@ func (q *Queue) addWithPriority(item string, priority int) {
 	q.update(item, priority)
 }
 
+// Channel filled with goroutines Dijkstra's results and used by the output function
+var channelOutput = make(chan dijkstraResult, 10)
+
+// Waitgroup to synchronize variables
+var wg sync.WaitGroup
+
 func main() {
+	fmt.Printf("CPU threads given %d\n", runtime.NumCPU())
+	var nbNoeud int
+	start := time.Now()
+
 	// Check if there is a file name given
 	if len(os.Args) < 2 {
 		fmt.Println("No argument given")
@@ -82,10 +102,10 @@ func main() {
 		relation := strings.Split(line, " ")
 
 		if len(relation) == 2 {
-			//nbNoeud, err := strconv.Atoi(relation[0])
-			//if err != nil {
-			//	os.Exit(3)
-			//}
+			nbNoeud, err = strconv.Atoi(relation[0])
+			if err != nil {
+				os.Exit(3)
+			}
 			//nbLien := relation[1]
 		}
 
@@ -119,30 +139,39 @@ func main() {
 			graph[destination][origin] = value
 		}
 	}
-	fmt.Println(graph["B"]["A"])
-	fmt.Println(graph)
 
 	var ensemble []string
 	for key := range graph {
 		ensemble = append(ensemble, key)
 	}
-	fmt.Println(ensemble)
 
-	dist, prev := Shortestpath(graph, "A", ensemble)
-	fmt.Println("DIST", dist)
-	fmt.Println("PREV", prev)
+	fileReadTime := time.Since(start)
+	// Increment waitgroup and launch output in a goroutine
+	wg.Add(1)
+	go output(nbNoeud)
 
-	for _, e := range ensemble {
-		fmt.Println(getPath(e, prev))
+	// Launch dijsktra's shortest path function for each vertex in a goroutine
+	for _, v := range ensemble {
+		wg.Add(1)
+		go Shortestpath(graph, v, ensemble)
 	}
+
+	// Wait for all goroutines to end and print execution time
+	wg.Wait()
+	fmt.Printf("FINISHED IN %v %v\n", fileReadTime, time.Since(start))
 }
 
 const (
-	Infinity      = int(^uint(0) >> 1)
+	// Infinity represents the infinity in Dijkstra
+	Infinity = int(^uint(0) >> 1)
+	// Uninitialized is the state when there are no previous vertex in Dijkstra
 	Uninitialized = ""
 )
 
-func Shortestpath(graph map[string]map[string]int, src string, ensemble []string) (map[string]int, map[string]string) {
+// Shortestpath function that takes a graph in the form of a map, the source vertex, and a set containing all the vertexes
+// It returns the map dist that represents the shortest distance between the source and all vertexes
+// and the map prev that links a vertex to its previous
+func Shortestpath(graph map[string]map[string]int, src string, ensemble []string) {
 
 	dist := make(map[string]int)
 	prev := make(map[string]string)
@@ -173,7 +202,10 @@ func Shortestpath(graph map[string]map[string]int, src string, ensemble []string
 		}
 	}
 
-	return dist, prev
+	// Push results in the channel in the form of a structure
+	r := dijkstraResult{src: src, prev: prev, dist: dist}
+	channelOutput <- r
+	wg.Done()
 }
 
 func getPath(dest string, prev map[string]string) string {
@@ -186,6 +218,15 @@ func getPath(dest string, prev map[string]string) string {
 	return str
 }
 
-func output(src string, dist map[string]int, prev map[string]string) {
-
+// Function to output all results
+func output(nbNoeud int) {
+	var r dijkstraResult
+	for i := 0; i < nbNoeud; i++ {
+		r = <-channelOutput
+		fmt.Println("From vertex " + r.src)
+		fmt.Println("Distance :", r.dist)
+		fmt.Println("Map of previouces", r.prev)
+		fmt.Println("---------------------------")
+	}
+	wg.Done()
 }
