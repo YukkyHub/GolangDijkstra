@@ -21,6 +21,8 @@ type dijkstraResult struct {
 	dist map[string]int
 }
 
+// PFR comme discuté en vocal, on a utilisé une structure déjà prise pour la Queue pour être en n.log(n)
+// C'est un wrapper du heap de GO
 type Queue struct {
 	items []string
 	m     map[string]int
@@ -60,15 +62,20 @@ func (q *Queue) addWithPriority(item string, priority int) {
 	q.update(item, priority)
 }
 
-// Channel filled with goroutines Dijkstra's results and used by the output function
-var channelOutput = make(chan dijkstraResult, 10)
-
-// Waitgroup to synchronize variables
-var wg sync.WaitGroup
-
 func main() {
-	fmt.Printf("CPU threads given %d\n", runtime.NumCPU())
+	fmt.Printf("CPU threads given : %d\n", runtime.NumCPU())
+
+	// Channel filled with goroutines Dijkstra's results and used by the output function
+	var inputChannel = make(chan string, 150)
+
+	// Output channel filled by workers and used by the output function
+	var outputChannel = make(chan dijkstraResult, 30)
+
+	// Waitgroup to wait for the output function to finish
+	var wg sync.WaitGroup
+
 	var nbNoeud int
+	var outputFilename string
 	start := time.Now()
 
 	// Check if there is a file name given
@@ -76,6 +83,13 @@ func main() {
 		fmt.Println("No argument given")
 		os.Exit(1)
 	}
+
+	if len(os.Args) < 3 {
+		outputFilename = "dijkstra-output.txt"
+	} else {
+		outputFilename = os.Args[2]
+	}
+
 	file, err := os.Open(os.Args[1])
 	if err != nil {
 		log.Fatal(err)
@@ -148,17 +162,17 @@ func main() {
 	fileReadTime := time.Since(start)
 	// Increment waitgroup and launch output in a goroutine
 	wg.Add(1)
-	go output(nbNoeud)
+	go output(nbNoeud, outputFilename, outputChannel, &wg)
 
 	// Launch dijsktra's shortest path function for each vertex in a goroutine
-	for _, v := range ensemble {
-		wg.Add(1)
-		go Shortestpath(graph, v, ensemble)
+	for i := 0; i < 10; i++ {
+		go worker(graph, ensemble, inputChannel, outputChannel)
 	}
+	go feedInput(ensemble, inputChannel)
 
 	// Wait for all goroutines to end and print execution time
 	wg.Wait()
-	fmt.Printf("FINISHED IN %v %v\n", fileReadTime, time.Since(start))
+	fmt.Printf("FINISHED IN %v\nFINISHED FILE READING AT %v\nResult written in file called %s\n", time.Since(start), fileReadTime, outputFilename)
 }
 
 const (
@@ -168,10 +182,24 @@ const (
 	Uninitialized = ""
 )
 
+func feedInput(ensemble []string, inputChannel chan string) {
+	for _, v := range ensemble {
+		inputChannel <- v
+	}
+}
+
+func worker(graph map[string]map[string]int, ensemble []string, inputChannel chan string, outputChannel chan dijkstraResult) {
+	for {
+		vertex := <-inputChannel
+		outputChannel <- Shortestpath(graph, vertex, ensemble)
+
+	}
+}
+
 // Shortestpath function that takes a graph in the form of a map, the source vertex, and a set containing all the vertexes
 // It returns the map dist that represents the shortest distance between the source and all vertexes
 // and the map prev that links a vertex to its previous
-func Shortestpath(graph map[string]map[string]int, src string, ensemble []string) {
+func Shortestpath(graph map[string]map[string]int, src string, ensemble []string) dijkstraResult {
 
 	dist := make(map[string]int)
 	prev := make(map[string]string)
@@ -203,30 +231,27 @@ func Shortestpath(graph map[string]map[string]int, src string, ensemble []string
 	}
 
 	// Push results in the channel in the form of a structure
-	r := dijkstraResult{src: src, prev: prev, dist: dist}
-	channelOutput <- r
-	wg.Done()
-}
-
-func getPath(dest string, prev map[string]string) string {
-	str := dest
-	for prev[dest] != "" {
-		str = prev[dest] + "->" + str
-		dest = prev[dest]
-	}
-
-	return str
+	return dijkstraResult{src: src, prev: prev, dist: dist}
 }
 
 // Function to output all results
-func output(nbNoeud int) {
+func output(nbNoeud int, filename string, outputChannel chan dijkstraResult, wg *sync.WaitGroup) {
 	var r dijkstraResult
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, 0600)
+	defer file.Close()
+	if err != nil {
+		panic(err)
+	}
 	for i := 0; i < nbNoeud; i++ {
-		r = <-channelOutput
-		fmt.Println("From vertex " + r.src)
-		fmt.Println("Distance :", r.dist)
-		fmt.Println("Map of previouces", r.prev)
-		fmt.Println("---------------------------")
+		// PFR on a check le bottleneck en vocal
+		// On a parlé d'un 14.5
+		r = <-outputChannel
+		str := fmt.Sprintf("From vertex %vDistance : %v\nMap of previouces %v\n", r.src, r.dist, r.prev)
+		_, err := file.WriteString(str)
+
+		if err != nil {
+			panic(err)
+		}
 	}
 	wg.Done()
 }
